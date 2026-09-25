@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppUser, UserRole } from '../types';
 import { TOLEDO_DISTRICTS } from '../data/mockData';
+import { useAppAuth } from '../auth/AuthProvider';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -36,12 +37,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogout,
   onOpenSecurityGuide,
 }) => {
+  const appAuth = useAppAuth();
   const [authMode, setAuthMode] = React.useState<'login' | 'register'>('login');
   const [role, setRole] = React.useState<UserRole>('consumer');
   
   // Form fields
   const [email, setEmail] = React.useState('lucas.toledo@agrohero.com.br');
-  const [password, setPassword] = React.useState('SenhaForte@2026');
+  const [password, setPassword] = React.useState('');
   const [showPassword, setShowPassword] = React.useState(false);
   const [name, setName] = React.useState('Lucas Silva');
   
@@ -51,6 +53,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [dapNumber, setDapNumber] = React.useState('DAP-PR-45920-A');
   const [lgpdConsent, setLgpdConsent] = React.useState(true);
   const [registerSuccess, setRegisterSuccess] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!appAuth.isAuthenticated || !appAuth.user || currentUser) return;
+    onLogin({
+      id: appAuth.user.sub || `auth0-${Date.now()}`,
+      name: appAuth.user.name || appAuth.user.email || 'Usuário Agro Hero',
+      email: appAuth.user.email || '',
+      role: 'consumer',
+      location: 'Toledo - PR',
+      avatar: appAuth.user.picture || '',
+    });
+  }, [appAuth.isAuthenticated, appAuth.user, currentUser, onLogin]);
 
   if (!isOpen) return null;
 
@@ -154,7 +168,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Top Header */}
         <div className="bg-stone-900 text-white p-6 text-center relative">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center mx-auto mb-2 text-white shadow-md">
+          <div className="w-12 h-12 rounded-2xl bg-linear-to-br from-emerald-500 to-emerald-700 flex items-center justify-center mx-auto mb-2 text-white shadow-md">
             <Sprout className="w-7 h-7 text-emerald-100" />
           </div>
           <h3 className="text-xl font-black font-['Outfit',sans-serif]">
@@ -245,6 +259,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </button>
               </div>
 
+              {appAuth.configured && authMode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => void appAuth.login()}
+                  className="w-full py-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-white font-bold text-xs cursor-pointer"
+                >
+                  Entrar com Auth0
+                </button>
+              )}
+
               {/* Quick Persona Switcher */}
               {authMode === 'login' && (
                 <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 space-y-2">
@@ -252,7 +276,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900 block">
                       Acesso Rápido de Teste (1-Clique):
                     </span>
-                    <span className="text-[10px] text-emerald-700 font-semibold">Auth0 Mock</span>
+                    <span className="text-[10px] text-emerald-700 font-semibold">Acesso rápido</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button

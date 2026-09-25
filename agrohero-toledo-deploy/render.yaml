@@ -5,6 +5,7 @@ services:
     env: node
     plan: free
     region: ohio
+    rootDir: agrohero-toledo-deploy
     buildCommand: npm install && npm run build
     startCommand: npm run start:server
     healthCheckPath: /api/health
@@ -18,7 +19,19 @@ services:
           name: agro-hero-db
           property: connectionString
       - key: CORS_ORIGIN
-        value: https://agro-hero.vercel.app
+        sync: false
+      - key: AUTH0_ISSUER_URL
+        sync: false
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: AUTH0_ROLES_CLAIM
+        value: https://agrohero.app/roles
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: CHECKOUT_BASE_URL
+        sync: false
 
 databases:
   # PostgreSQL gerenciado no Render

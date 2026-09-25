@@ -45,7 +45,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
             O cadastro de usuários e produtores está seguro?
           </h3>
           <p className="mt-1.5 text-xs sm:text-sm text-emerald-100/90 leading-relaxed">
-            Sim! A plataforma Agro Hero foi concebida com arquitetura de segurança corporativa baseada no padrão Auth0 / OpenID Connect, criptografia em trânsito e conformidade com a LGPD.
+            A plataforma aplica validações de entrada, restrição de origem e headers de segurança. O login Auth0 e a persistência segura são ativados quando as variáveis de produção estão configuradas.
           </p>
         </div>
 
@@ -58,10 +58,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
             </div>
             <div>
               <span className="text-xs font-black uppercase tracking-wider text-emerald-900 block">
-                Classificação: Segurança de Alto Nível
+                Status: Controles técnicos ativos
               </span>
               <p className="text-xs text-emerald-800 leading-normal mt-0.5">
-                Senhas nunca trafegam ou são salvas em texto puro. Os perfis de <strong>Consumidores</strong> e <strong>Agricultores Familiares</strong> contam com isolamento de permissões (RBAC).
+                A autorização do backend usa JWT/Auth0 quando configurada. O ambiente local possui acesso demonstrativo e não deve ser usado como autenticação de produção.
               </p>
             </div>
           </div>
@@ -77,10 +77,10 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
               <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 space-y-1.5">
                 <div className="flex items-center gap-2 font-bold text-stone-900">
                   <KeyRound className="w-4 h-4 text-emerald-600" />
-                  <span>1. Hash Criptográfico Argon2 / bcrypt</span>
+                  <span>1. Credenciais delegadas ao Auth0</span>
                 </div>
                 <p className="text-stone-600 leading-relaxed">
-                  Mesmo em caso improvável de vazamento de banco, as senhas são irreversíveis devido ao uso de salt criptográfico e derivação de chaves.
+                  O aplicativo não implementa armazenamento próprio de senhas quando o Auth0 está ativo. A política de credenciais fica no provedor de identidade.
                 </p>
               </div>
 
@@ -90,7 +90,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
                   <span>2. Separação de Papéis (RBAC)</span>
                 </div>
                 <p className="text-stone-600 leading-relaxed">
-                  Consumidores não têm acesso a dados financeiros de produtores. Produtores acessam exclusivamente sua própria safra e pedidos.
+                  Rotas protegidas verificam o token e exigem os papéis permitidos no backend.
                 </p>
               </div>
 
@@ -100,7 +100,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
                   <span>3. Tráfego Criptografado (TLS 1.3)</span>
                 </div>
                 <p className="text-stone-600 leading-relaxed">
-                  Toda comunicação entre o frontend na Vercel e a API no Render ocorre através de túnel criptografado com certificados SSL/TLS automáticos.
+                  Em produção, use HTTPS fornecido pela plataforma e mantenha o backend configurado para aceitar apenas a origem do frontend.
                 </p>
               </div>
 
@@ -110,7 +110,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
                   <span>4. Conformidade Total com a LGPD</span>
                 </div>
                 <p className="text-stone-600 leading-relaxed">
-                  Coletamos estritamente o necessário para entrega (nome, telefone e bairro de Toledo). Sem venda de dados ou rastreadores de terceiros.
+                  Os campos coletados devem ser limitados ao necessário para cadastro, entrega e atendimento, com política de retenção definida antes da operação.
                 </p>
               </div>
             </div>
@@ -123,7 +123,7 @@ export const SecurityModal: React.FC<SecurityModalProps> = ({ isOpen, onClose })
               <span>Validação Rigorosa de Produtores Familiares</span>
             </h4>
             <p className="text-xs text-amber-900/90 leading-relaxed">
-              Para cadastrar um produtor rural e comercializar como "Orgânico", a plataforma exige e audita o registro <strong>DAP/CAF (Declaração de Aptidão ao PRONAF)</strong> ou certificação participativa por entidades reconhecidas (como a <strong>Rede Ecovida</strong> ou <strong>CPOrg Paraná</strong>). Isso impede fraudes ou alimentos com defensivos ilegais.
+              A validação documental de produtores e certificações orgânicas deve ser realizada por uma rotina administrativa antes da publicação. O formulário sozinho não comprova a certificação.
             </p>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Navbar } from './components/Navbar';
 import { MarketplaceView } from './components/MarketplaceView';
 import { RecipesView } from './components/RecipesView';
@@ -10,6 +11,8 @@ import { AuthModal } from './components/AuthModal';
 import { AboutModal } from './components/AboutModal';
 import { SecurityModal } from './components/SecurityModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
+import { api } from './api';
+import { useAppAuth } from './auth/AuthProvider';
 
 import { 
   INITIAL_PRODUCTS, 
@@ -26,9 +29,26 @@ import {
   AppUser 
 } from './types';
 
-export default function App() {
-  // Navigation
-  const [currentTab, setCurrentTab] = React.useState<string>('marketplace');
+const tabPaths: Record<string, string> = {
+  marketplace: '/',
+  receitas: '/receitas',
+  feedbacks: '/depoimentos',
+  produtor: '/produtor',
+};
+
+const pathTabs: Record<string, string> = {
+  '/': 'marketplace',
+  '/receitas': 'receitas',
+  '/depoimentos': 'feedbacks',
+  '/produtor': 'produtor',
+};
+
+function AppShell() {
+  const appAuth = useAppAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { productId } = useParams<{ productId: string }>();
+  const currentTab = pathTabs[location.pathname] || 'marketplace';
   const [targetRecipeId, setTargetRecipeId] = React.useState<string | null>(null);
 
   // Core Data States
@@ -36,6 +56,12 @@ export default function App() {
     const saved = localStorage.getItem('agrohero_products');
     return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
   });
+
+  React.useEffect(() => {
+    api.products()
+      .then(({ products: remoteProducts }) => setProducts(remoteProducts))
+      .catch(() => undefined);
+  }, []);
 
   const [recipes] = React.useState<Recipe[]>(RECIPES);
 
@@ -110,18 +136,62 @@ export default function App() {
   });
 
   // Current User Session
-  const [currentUser, setCurrentUser] = React.useState<AppUser | null>(() => {
-    const saved = localStorage.getItem('agrohero_user');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = React.useState<AppUser | null>(null);
 
   // Modals
   const [selectedProductForModal, setSelectedProductForModal] = React.useState<Product | null>(null);
-  const [isCartOpen, setIsCartOpen] = React.useState(false);
-  const [isAuthOpen, setIsAuthOpen] = React.useState(false);
+  const [isCartOpen, setIsCartOpen] = React.useState(location.pathname === '/carrinho');
+  const [isAuthOpen, setIsAuthOpen] = React.useState(location.pathname === '/login');
   const [isAboutOpen, setIsAboutOpen] = React.useState(false);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = React.useState(false);
   const [isDeployGuideModalOpen, setIsDeployGuideModalOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    api.health().catch(() => undefined);
+  }, []);
+
+  React.useEffect(() => {
+    setIsCartOpen(location.pathname === '/carrinho');
+    setIsAuthOpen(location.pathname === '/login');
+    if (productId) {
+      const product = products.find((item) => item.id === productId);
+      setSelectedProductForModal(product || null);
+    } else {
+      setSelectedProductForModal(null);
+    }
+  }, [location.pathname, productId, products]);
+
+  React.useEffect(() => {
+    const canManage = currentUser?.role === 'farmer' || currentUser?.role === 'admin';
+    if (location.pathname === '/produtor' && !canManage) {
+      navigate('/login', { replace: true });
+    }
+  }, [currentUser, location.pathname, navigate]);
+
+  React.useEffect(() => {
+    if (location.pathname !== '/produtor' || !appAuth.configured || !appAuth.isAuthenticated) return;
+    void appAuth.getAccessToken()
+      .then((token) => token ? api.orders(token) : null)
+      .then((response) => {
+        if (response?.orders) setOrders(response.orders);
+      })
+      .catch(() => undefined);
+  }, [appAuth, location.pathname]);
+
+  const navigateToTab = (tab: string) => {
+    navigate(tabPaths[tab] || '/');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const openProduct = (product: Product) => {
+    setSelectedProductForModal(product);
+    navigate(`/produto/${product.id}`);
+  };
+
+  const closeProduct = () => {
+    setSelectedProductForModal(null);
+    navigate('/');
+  };
 
   // Sync with LocalStorage
   React.useEffect(() => {
@@ -139,14 +209,6 @@ export default function App() {
   React.useEffect(() => {
     localStorage.setItem('agrohero_orders', JSON.stringify(orders));
   }, [orders]);
-
-  React.useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('agrohero_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('agrohero_user');
-    }
-  }, [currentUser]);
 
   // Cart operations
   const handleAddToCart = (product: Product, quantity = 1) => {
@@ -187,6 +249,25 @@ export default function App() {
     setOrders((prev) => [newOrder, ...prev]);
   };
 
+  const handleStartCheckout = async (items: CartItem[]) => {
+    if (!appAuth.configured || !appAuth.isAuthenticated) return false;
+    const token = await appAuth.getAccessToken();
+    if (!token) return false;
+    const { checkoutUrl } = await api.checkout(items, token);
+    if (!checkoutUrl) return false;
+    window.location.assign(checkoutUrl);
+    return true;
+  };
+
+  const handleLogin = async (user: AppUser) => {
+    try {
+      await api.verifyUser(user);
+    } catch {
+      // The local demo flow remains usable when the API is not running.
+    }
+    setCurrentUser(user);
+  };
+
   // Product CRUD for Producer Dashboard
   const handleAddProduct = (newProd: Product) => {
     setProducts((prev) => [newProd, ...prev]);
@@ -202,7 +283,15 @@ export default function App() {
     setProducts((prev) => prev.filter((p) => p.id !== productId));
   };
 
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    if (appAuth.configured && appAuth.isAuthenticated) {
+      try {
+        const token = await appAuth.getAccessToken();
+        if (token) await api.updateOrderStatus(orderId, status, token);
+      } catch {
+        return;
+      }
+    }
     setOrders((prev) =>
       prev.map((o) => (o.id === orderId ? { ...o, status } : o))
     );
@@ -222,8 +311,7 @@ export default function App() {
   // Navigation helpers
   const handleNavigateToRecipeWithHighlight = (recipeId: string) => {
     setTargetRecipeId(recipeId);
-    setCurrentTab('receitas');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    navigateToTab('receitas');
   };
 
   const handleSelectRecipeFromProduct = (recipeId: string) => {
@@ -238,14 +326,11 @@ export default function App() {
       {/* Top Navigation */}
       <Navbar
         currentTab={currentTab}
-        onSelectTab={(tab) => {
-          setCurrentTab(tab);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onSelectTab={navigateToTab}
         cartCount={totalCartCount}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => navigate('/carrinho')}
         currentUser={currentUser}
-        onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenAuth={() => navigate('/login')}
         onOpenAbout={() => setIsAboutOpen(true)}
         onOpenSecurity={() => setIsSecurityModalOpen(true)}
         onOpenDeployGuide={() => setIsDeployGuideModalOpen(true)}
@@ -256,15 +341,13 @@ export default function App() {
         {currentTab === 'marketplace' && (
           <MarketplaceView
             products={products}
-            onSelectProduct={(p) => setSelectedProductForModal(p)}
+            onSelectProduct={openProduct}
             onAddToCart={handleAddToCart}
             onNavigateToRecipes={() => {
-              setCurrentTab('receitas');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
+              navigateToTab('receitas');
             }}
             onNavigateToTestimonials={() => {
-              setCurrentTab('feedbacks');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
+              navigateToTab('feedbacks');
             }}
           />
         )}
@@ -278,7 +361,7 @@ export default function App() {
             onAddMultipleToCart={(items) => {
               items.forEach((item) => handleAddToCart(item.product, item.quantity));
             }}
-            onSelectProduct={(p) => setSelectedProductForModal(p)}
+            onSelectProduct={openProduct}
           />
         )}
 
@@ -328,22 +411,22 @@ export default function App() {
               <h4 className="text-xs font-bold uppercase tracking-wider text-white">Navegação</h4>
               <ul className="text-xs space-y-2 text-stone-400">
                 <li>
-                  <button onClick={() => setCurrentTab('marketplace')} className="hover:text-emerald-400 cursor-pointer">
+                  <button onClick={() => navigateToTab('marketplace')} className="hover:text-emerald-400 cursor-pointer">
                     Marketplace de Orgânicos
                   </button>
                 </li>
                 <li>
-                  <button onClick={() => setCurrentTab('receitas')} className="hover:text-emerald-400 cursor-pointer">
+                  <button onClick={() => navigateToTab('receitas')} className="hover:text-emerald-400 cursor-pointer">
                     Receitas da Região
                   </button>
                 </li>
                 <li>
-                  <button onClick={() => setCurrentTab('feedbacks')} className="hover:text-emerald-400 cursor-pointer">
+                  <button onClick={() => navigateToTab('feedbacks')} className="hover:text-emerald-400 cursor-pointer">
                     Depoimentos dos Usuários
                   </button>
                 </li>
                 <li>
-                  <button onClick={() => setCurrentTab('produtor')} className="hover:text-emerald-400 cursor-pointer">
+                  <button onClick={() => navigateToTab('produtor')} className="hover:text-emerald-400 cursor-pointer">
                     Painel do Agricultor Familiar
                   </button>
                 </li>
@@ -396,7 +479,7 @@ export default function App() {
       {/* Modals */}
       <ProductDetailModal
         product={selectedProductForModal}
-        onClose={() => setSelectedProductForModal(null)}
+        onClose={closeProduct}
         onAddToCart={handleAddToCart}
         recipes={recipes}
         onSelectRecipe={handleSelectRecipeFromProduct}
@@ -404,19 +487,26 @@ export default function App() {
 
       <CartAndCheckoutModal
         isOpen={isCartOpen}
-        onClose={() => setIsCartOpen(false)}
+        onClose={() => {
+          setIsCartOpen(false);
+          navigate('/');
+        }}
         cartItems={cartItems}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveCartItem}
         onClearCart={handleClearCart}
         onOrderCompleted={handleOrderCompleted}
+        onStartCheckout={handleStartCheckout}
       />
 
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          navigate('/');
+        }}
         currentUser={currentUser}
-        onLogin={(user) => setCurrentUser(user)}
+        onLogin={handleLogin}
         onLogout={() => setCurrentUser(null)}
         onOpenSecurityGuide={() => setIsSecurityModalOpen(true)}
       />
@@ -436,5 +526,20 @@ export default function App() {
         onClose={() => setIsDeployGuideModalOpen(false)}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<AppShell />} />
+      <Route path="/receitas" element={<AppShell />} />
+      <Route path="/depoimentos" element={<AppShell />} />
+      <Route path="/produtor" element={<AppShell />} />
+      <Route path="/produto/:productId" element={<AppShell />} />
+      <Route path="/carrinho" element={<AppShell />} />
+      <Route path="/login" element={<AppShell />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

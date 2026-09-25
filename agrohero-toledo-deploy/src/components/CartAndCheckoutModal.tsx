@@ -30,6 +30,7 @@ interface CartAndCheckoutModalProps {
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
   onOrderCompleted: (order: Order) => void;
+  onStartCheckout?: (items: CartItem[]) => Promise<boolean>;
 }
 
 export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
@@ -40,6 +41,7 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
   onRemoveItem,
   onClearCart,
   onOrderCompleted,
+  onStartCheckout,
 }) => {
   const [step, setStep] = React.useState<'cart' | 'shipping' | 'payment' | 'success'>('cart');
 
@@ -53,14 +55,10 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
 
   // Payment details state
   const [paymentMethod, setPaymentMethod] = React.useState<'pix' | 'credit_card'>('pix');
-  const [cardNumber, setCardNumber] = React.useState('4532 •••• •••• 8812');
-  const [cardName, setCardName] = React.useState('LUCAS S SILVA');
-  const [cardExpiry, setCardExpiry] = React.useState('08/29');
-  const [cardCvv, setCardCvv] = React.useState('431');
-  const [installments, setInstallments] = React.useState('1');
 
   // PIX helpers
   const [copiedPix, setCopiedPix] = React.useState(false);
+  const [paymentError, setPaymentError] = React.useState<string | null>(null);
   const [completedOrder, setCompletedOrder] = React.useState<Order | null>(null);
 
   if (!isOpen) return null;
@@ -77,38 +75,19 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
     setTimeout(() => setCopiedPix(false), 2000);
   };
 
-  const handleFinishPayment = () => {
-    const newOrder: Order = {
-      id: `ord-${Date.now()}`,
-      createdAt: 'Agora mesmo',
-      customerName,
-      customerPhone,
-      customerAddress: deliveryMethod === 'delivery' ? customerAddress : 'Retirada no Ponto Ecológico',
-      deliveryMethod,
-      neighborhood: deliveryMethod === 'delivery' ? neighborhood : 'Ponto Toledo',
-      pickupLocation: deliveryMethod === 'pickup' ? pickupPoint : undefined,
-      paymentMethod: paymentMethod === 'pix' ? 'pix' : 'credit_card',
-      items: [...cartItems],
-      totalAmount: orderTotal,
-      deliveryFee,
-      status: 'novo',
-    };
+  const handleFinishPayment = async () => {
+    setPaymentError(null);
+    if (!onStartCheckout) {
+      setPaymentError('O gateway de pagamento não está disponível neste ambiente.');
+      return;
+    }
 
-    setCompletedOrder(newOrder);
-    onOrderCompleted(newOrder);
-    onClearCart();
-    setStep('success');
-
-    // Launch celebratory confetti
     try {
-      confetti({
-        particleCount: 120,
-        spread: 80,
-        origin: { y: 0.5 },
-        colors: ['#059669', '#10b981', '#f59e0b', '#3b82f6'],
-      });
-    } catch (e) {
-      console.log('Confetti');
+      const redirectedToGateway = await onStartCheckout(cartItems);
+      if (redirectedToGateway) return;
+      setPaymentError('Configure Auth0 e o gateway de pagamento para concluir a transação.');
+    } catch {
+      setPaymentError('Não foi possível iniciar o checkout. Tente novamente.');
     }
   };
 
@@ -130,7 +109,7 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
             <span className="font-extrabold text-stone-900 text-base font-['Outfit',sans-serif]">
               {step === 'cart' && 'Minha Cesta de Orgânicos de Toledo'}
               {step === 'shipping' && 'Entrega ou Retirada em Toledo - PR'}
-              {step === 'payment' && 'Pagamento Seguro (PIX ou Cartão)'}
+              {step === 'payment' && 'Pagamento (PIX ou Cartão)'}
               {step === 'success' && 'Pedido Confirmado com Sucesso!'}
             </span>
           </div>
@@ -399,6 +378,11 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
           {/* STEP 3: PAYMENT GATEWAY (PIX & CARTÃO) */}
           {step === 'payment' && (
             <div className="space-y-4">
+              {paymentError && (
+                <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-800">
+                  {paymentError}
+                </div>
+              )}
               {/* Payment selector tabs */}
               <div className="grid grid-cols-2 gap-3">
                 <button
@@ -493,79 +477,14 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
                   </p>
                 </div>
               ) : (
-                /* Card Form Flow */
                 <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
-                  <div>
-                    <label className="text-xs font-bold text-stone-700 block mb-1">
-                      Número do Cartão
-                    </label>
-                    <input
-                      type="text"
-                      value={cardNumber}
-                      onChange={(e) => setCardNumber(e.target.value)}
-                      placeholder="0000 0000 0000 0000"
-                      className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-mono font-bold text-stone-900"
-                    />
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
+                    <span>Pagamento processado pelo provedor seguro</span>
                   </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-stone-700 block mb-1">
-                      Nome Impresso no Cartão
-                    </label>
-                    <input
-                      type="text"
-                      value={cardName}
-                      onChange={(e) => setCardName(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-bold text-stone-900 uppercase"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-bold text-stone-700 block mb-1">
-                        Validade (MM/AA)
-                      </label>
-                      <input
-                        type="text"
-                        value={cardExpiry}
-                        onChange={(e) => setCardExpiry(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs text-stone-900 font-mono"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-stone-700 block mb-1">
-                        CVV
-                      </label>
-                      <input
-                        type="password"
-                        maxLength={4}
-                        value={cardCvv}
-                        onChange={(e) => setCardCvv(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs text-stone-900 font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-stone-700 block mb-1">
-                      Opções de Parcelamento
-                    </label>
-                    <select
-                      value={installments}
-                      onChange={(e) => setInstallments(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-bold text-stone-800"
-                    >
-                      <option value="1">1x de R$ {orderTotal.toFixed(2).replace('.', ',')} (Sem juros)</option>
-                      <option value="2">2x de R$ {(orderTotal / 2).toFixed(2).replace('.', ',')} (Sem juros)</option>
-                      <option value="3">3x de R$ {(orderTotal / 3).toFixed(2).replace('.', ',')} (Sem juros)</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-[11px] text-stone-500 pt-1">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                    <span>Transação criptografada de ponta a ponta com certificação PCI-DSS.</span>
-                  </div>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    Você será direcionado ao checkout externo para concluir PIX ou cartão. Os dados financeiros não passam pelo Agro Hero.
+                  </p>
                 </div>
               )}
             </div>

@@ -1,21 +1,15 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Agro Hero Toledo
 
-# Run and deploy your AI Studio app
+Este repositório contém a aplicação web Agro Hero Toledo, voltada à conexão entre agricultores familiares, consumidores e iniciativas de produção sustentável em Toledo, Paraná.
 
-This contains everything you need to run your app locally.
+O projeto está localizado na pasta [agrohero-toledo-deploy](agrohero-toledo-deploy/). A documentação técnica, os comandos de execução e as variáveis de ambiente estão disponíveis no [README principal da aplicação](agrohero-toledo-deploy/README.md).
 
-View your app in AI Studio: https://ai.studio/apps/4243527f-d071-4177-9457-947c365e2229
+Para iniciar o projeto:
 
-## Run Locally
+```bash
+cd agrohero-toledo-deploy
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
-# AGROHERO-TOLEDO
+As instruções de implantação em Vercel e Render estão em [DEPLOY_VERCEL_RENDER.md](agrohero-toledo-deploy/DEPLOY_VERCEL_RENDER.md).

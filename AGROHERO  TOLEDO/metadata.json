@@ -1,0 +1,7 @@
+{
+  "name": "Agro Hero - Marketplace de Alimentos Orgânicos & Agricultura Familiar",
+  "description": "Agro Hero conecta agricultores familiares de Toledo-PR e consumidores com alimentos orgânicos frescos colhidos sob demanda, receitas locais sustentáveis e pagamentos seguros.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

@@ -1,8 +1,9 @@
 import express, { Request, Response } from 'express';
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import { changeOrderStatus, initializeDatabase, isDatabaseConfigured, listOrders, listProducts, listRecipes, saveOrder } from './database';
-import { authConfigured, requireAuth, requireRole, AuthenticatedRequest } from './auth';
-import { createCheckoutPreference, paymentsConfigured } from './payments';
+import { authConfigured, optionalAuth, requireAuth, requireRole, AuthenticatedRequest } from './auth';
+import { PICKUP_PAYMENT_POLICY, isPaymentMethod, listPaymentOptions } from './paymentMethods';
+import { isMailConfigured, sendOrderEmails } from './mailer';
+import { Order } from './src/types';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -99,6 +100,11 @@ app.get('/api/recipes', async (_req: Request, res: Response, next) => {
   }
 });
 
+// Métodos aceitos e política de cobrança: todo pagamento ocorre no local da retirada/entrega.
+app.get('/api/payment-methods', (_req: Request, res: Response) => {
+  res.json({ policy: PICKUP_PAYMENT_POLICY, methods: listPaymentOptions() });
+});
+
 app.get('/api/orders', requireAuth, requireRole('farmer', 'admin'), async (_req: AuthenticatedRequest, res: Response, next) => {
   try {
     res.json({ orders: await listOrders() });
@@ -107,14 +113,102 @@ app.get('/api/orders', requireAuth, requireRole('farmer', 'admin'), async (_req:
   }
 });
 
-app.post('/api/orders', requireAuth, async (req: AuthenticatedRequest, res: Response, next) => {
+const isPositiveNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+const isNonEmptyString = (value: unknown, maxLength = 200): value is string =>
+  typeof value === 'string' && value.trim().length > 0 && value.length <= maxLength;
+
+function validateOrderPayload(order: unknown) {
+  if (!order || typeof order !== 'object') return { error: 'Pedido inválido.' };
+  const candidate = order as Record<string, unknown>;
+
+  if (!isNonEmptyString(candidate.id, 120)) return { error: 'Pedido inválido.' };
+  if (candidate.status !== 'novo') return { error: 'Pedido inválido.' };
+  if (!isPositiveNumber(candidate.totalAmount)) return { error: 'Pedido inválido.' };
+  if (candidate.deliveryMethod !== 'delivery' && candidate.deliveryMethod !== 'pickup') {
+    return { error: 'Forma de recebimento inválida.' };
+  }
+  if (!isPaymentMethod(candidate.paymentMethod)) {
+    return { error: 'Forma de pagamento inválida.' };
+  }
+  // O pedido nasce com pagamento pendente: a cobrança acontece no local da retirada/entrega.
+  if (candidate.paymentStatus !== 'pending_on_pickup') {
+    return { error: 'O pagamento deve ser confirmado no local da retirada.' };
+  }
+  if (!isNonEmptyString(candidate.customerName, 120) || !isNonEmptyString(candidate.customerPhone, 40)) {
+    return { error: 'Dados do cliente são obrigatórios.' };
+  }
+  if (!validateEmail(candidate.customerEmail)) {
+    return { error: 'Informe um e-mail válido para receber a confirmação do pedido.' };
+  }
+  if (candidate.deliveryMethod === 'pickup' && !isNonEmptyString(candidate.pickupLocation)) {
+    return { error: 'Informe o ponto de retirada.' };
+  }
+  if (candidate.deliveryMethod === 'delivery' && !isNonEmptyString(candidate.customerAddress)) {
+    return { error: 'Informe o endereço de entrega.' };
+  }
+  if (!isPositiveNumber(candidate.deliveryFee)) return { error: 'Taxa de entrega inválida.' };
+  if (!Array.isArray(candidate.items) || candidate.items.length === 0) {
+    return { error: 'Pedido sem itens.' };
+  }
+
+  const itemsAreValid = candidate.items.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const { product, quantity } = item as { product?: Record<string, unknown>; quantity?: unknown };
+    return Boolean(
+      product &&
+      isNonEmptyString(product.id, 120) &&
+      isNonEmptyString(product.name, 200) &&
+      isPositiveNumber(product.price) &&
+      Number.isInteger(quantity) &&
+      (quantity as number) > 0 &&
+      (quantity as number) <= 100,
+    );
+  });
+  if (!itemsAreValid) return { error: 'Itens do carrinho inválidos.' };
+
+  const expectedTotal = candidate.items.reduce((total, item) => {
+    const { product, quantity } = item as { product: { price: number }; quantity: number };
+    return total + product.price * quantity;
+  }, candidate.deliveryFee as number);
+  if (Math.abs(expectedTotal - (candidate.totalAmount as number)) > 0.01) {
+    return { error: 'Total do pedido não confere com os itens.' };
+  }
+
+  return { order: candidate as unknown as Order };
+}
+
+app.post('/api/orders', optionalAuth, async (req: AuthenticatedRequest, res: Response, next) => {
   try {
-    const order = req.body;
-    if (!order || typeof order.id !== 'string' || !Array.isArray(order.items) || order.items.length === 0 ||
-        typeof order.totalAmount !== 'number' || order.totalAmount < 0 || order.status !== 'novo') {
-      return res.status(400).json({ error: 'Pedido inválido.' });
+    const validation = validateOrderPayload(req.body);
+    if ('error' in validation) {
+      return res.status(400).json({ error: validation.error });
     }
-    res.status(201).json({ order: await saveOrder(order, req.auth?.sub) });
+    const order = await saveOrder(validation.order, req.auth?.sub);
+
+    // O catálogo do servidor é a fonte dos produtores: evita usar e-mail vindo do payload do cliente.
+    const catalog = await listProducts();
+    const producerByProduct = new Map(catalog.map((product) => [product.id, product.producer]));
+    const resolveProducer = (productId: string) => producerByProduct.get(productId) || null;
+
+    // Falha de SMTP não pode desfazer um pedido já registrado.
+    let emailNotification: 'sent' | 'disabled' | 'failed' = 'disabled';
+    if (isMailConfigured()) {
+      try {
+        await sendOrderEmails(order, resolveProducer);
+        emailNotification = 'sent';
+      } catch (error) {
+        emailNotification = 'failed';
+        console.error('[Agro Hero Backend] Falha ao enviar e-mails do pedido', order.id, error);
+      }
+    }
+
+    res.status(201).json({
+      order,
+      payment: PICKUP_PAYMENT_POLICY,
+      emailNotification,
+    });
   } catch (error) {
     next(error);
   }
@@ -142,59 +236,6 @@ app.get(
     res.json({ authorized: true, subject: req.auth?.sub });
   },
 );
-
-app.post('/api/payments/checkout', requireAuth, async (req: AuthenticatedRequest, res: Response, next) => {
-  try {
-    if (!paymentsConfigured) {
-      return res.status(503).json({ error: 'Gateway de pagamento não está configurado.' });
-    }
-    const items = req.body?.items;
-    const payerEmail = typeof req.auth?.email === 'string' ? req.auth.email : undefined;
-    if (!Array.isArray(items) || items.length === 0 || !payerEmail) {
-      return res.status(400).json({ error: 'Itens e e-mail autenticado são obrigatórios.' });
-    }
-    const validItems = items.filter((item) =>
-      item && typeof item === 'object' &&
-      typeof item.product?.id === 'string' &&
-      typeof item.product?.name === 'string' &&
-      typeof item.product?.price === 'number' && item.product.price >= 0 &&
-      Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 100,
-    );
-    if (validItems.length !== items.length) {
-      return res.status(400).json({ error: 'Itens do carrinho inválidos.' });
-    }
-    res.status(201).json(await createCheckoutPreference(validItems, payerEmail));
-  } catch (error) {
-    next(error);
-  }
-});
-
-app.post('/api/payments/webhook', (req: Request, res: Response) => {
-  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
-  const signature = req.header('x-signature');
-  const requestId = req.header('x-request-id');
-  const dataId = typeof req.body?.data?.id === 'string' ? req.body.data.id : undefined;
-  if (!secret || !signature || !requestId || !dataId) {
-    return res.status(400).json({ error: 'Assinatura de webhook ausente.' });
-  }
-
-  const signatureParts = Object.fromEntries(signature.split(',').map((part) => part.split('=')));
-  const timestamp = signatureParts.ts;
-  const receivedHash = signatureParts.v1;
-  if (!timestamp || !receivedHash || Math.abs(Date.now() - Number(timestamp) * 1000) > 300_000) {
-    return res.status(401).json({ error: 'Webhook expirado ou inválido.' });
-  }
-
-  const manifest = `id:${dataId};request-id:${requestId};ts:${timestamp};`;
-  const expectedHash = createHmac('sha256', secret).update(manifest).digest('hex');
-  const expectedBuffer = Buffer.from(expectedHash, 'hex');
-  const receivedBuffer = Buffer.from(receivedHash, 'hex');
-  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
-    return res.status(401).json({ error: 'Assinatura de webhook inválida.' });
-  }
-
-  return res.sendStatus(202);
-});
 
 // API endpoint: Auth/Security verification
 app.post('/api/auth/verify', (req: Request, res: Response) => {

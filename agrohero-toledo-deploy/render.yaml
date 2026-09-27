@@ -26,11 +26,17 @@ services:
         sync: false
       - key: AUTH0_ROLES_CLAIM
         value: https://agrohero.app/roles
-      - key: MERCADOPAGO_ACCESS_TOKEN
+      - key: SMTP_HOST
         sync: false
-      - key: MERCADOPAGO_WEBHOOK_SECRET
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_USER
         sync: false
-      - key: CHECKOUT_BASE_URL
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: APP_URL
         sync: false
 
 databases:

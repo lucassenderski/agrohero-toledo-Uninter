@@ -20,7 +20,7 @@ A aplicação disponibiliza um marketplace de produtos, receitas regionais, depo
 - **Backend:** Node.js, Express e TypeScript.
 - **Banco de dados:** PostgreSQL, com execução prevista no Render.
 - **Autenticação:** Auth0 mediante configuração das variáveis de ambiente.
-- **Pagamentos:** checkout hospedado do Mercado Pago, quando configurado.
+- **Pagamentos:** cobrança presencial no local da retirada/entrega (PIX, cartão ou dinheiro). Nenhum pagamento online é processado pela aplicação.
 - **Hospedagem:** frontend na Vercel e backend com PostgreSQL no Render.
 
 ## Rotas principais
@@ -29,7 +29,7 @@ A aplicação disponibiliza um marketplace de produtos, receitas regionais, depo
 - `/receitas` - receitas regionais.
 - `/depoimentos` - avaliações e relatos da comunidade.
 - `/produto/:id` - detalhes de um produto.
-- `/carrinho` - carrinho e checkout.
+- `/carrinho` - carrinho e confirmação do pedido com pagamento na retirada.
 - `/login` - autenticação.
 - `/produtor` - painel protegido para produtores e administradores.
 
@@ -81,9 +81,6 @@ CORS_ORIGIN=https://seu-frontend.vercel.app
 AUTH0_ISSUER_URL=https://seu-tenant.us.auth0.com
 AUTH0_AUDIENCE=https://api.agrohero.app
 AUTH0_ROLES_CLAIM=https://agrohero.app/roles
-MERCADOPAGO_ACCESS_TOKEN=seu-token-privado
-MERCADOPAGO_WEBHOOK_SECRET=seu-segredo-de-webhook
-CHECKOUT_BASE_URL=https://seu-frontend.vercel.app
 ```
 
 ## Testes e verificações
@@ -95,21 +92,30 @@ npm run test:security
 npm audit --audit-level=high
 ```
 
-Os testes de segurança verificam headers, CORS, validação de entrada, proteção de rotas, webhooks, exposição de dados sensíveis e armazenamento no navegador.
+Os testes de segurança verificam headers, CORS, validação de entrada, proteção de rotas, política de pagamento presencial, exposição de dados sensíveis e armazenamento no navegador.
 
 ## Segurança e conformidade
 
 O backend aplica validação de entrada, limite de payload, rate limit em autenticação, CORS por allowlist e headers de segurança. As rotas administrativas exigem token válido e papel autorizado quando o Auth0 está configurado.
 
-O pagamento deve ocorrer no checkout externo do provedor. A aplicação não deve receber ou armazenar número completo de cartão, código CVV ou credenciais de usuários.
+O pagamento é acertado presencialmente no ponto de retirada ou na entrega. A aplicação não recebe, processa ou armazena dados de cartão, códigos PIX ou credenciais financeiras: o pedido é criado com `paymentStatus: pending_on_pickup` e a cobrança ocorre no local.
 
 Esses controles apoiam a conformidade técnica, mas não substituem auditoria jurídica, avaliação formal da LGPD ou certificação PCI-DSS.
 
+## Notificações por e-mail
+
+Ao confirmar um pedido, o backend envia dois e-mails transacionais:
+
+- O cliente recebe a confirmação da compra com o resumo dos itens, o total e o local de retirada ou entrega, no endereço informado em `customerEmail` (obrigatório e validado no servidor).
+- Cada produtor envolvido no pedido recebe um aviso para preparar os produtos, agrupado por produtor para não duplicar mensagens.
+
+O endereço do produtor é resolvido no catálogo do servidor a partir do `productId`, nunca a partir do que o cliente envia. O envio é best-effort: se o SMTP falhar, o pedido continua salvo e a API responde normalmente. Sem as variáveis `SMTP_*` configuradas, o pedido é aceito e o e-mail é apenas ignorado.
+
 ## Limitações
 
-- Auth0, PostgreSQL e Mercado Pago dependem de configuração externa.
+- Auth0 e PostgreSQL dependem de configuração externa.
 - Sem essas variáveis, o ambiente local utiliza dados iniciais para desenvolvimento e teste.
-- A confirmação financeira depende de webhook validado pelo provedor de pagamento.
+- A confirmação financeira é feita presencialmente pelo produtor no momento da retirada ou entrega.
 
 ## Deploy
 

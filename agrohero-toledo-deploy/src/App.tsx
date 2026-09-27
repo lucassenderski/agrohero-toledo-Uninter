@@ -11,7 +11,7 @@ import { AuthModal } from './components/AuthModal';
 import { AboutModal } from './components/AboutModal';
 import { SecurityModal } from './components/SecurityModal';
 import { DeployGuideModal } from './components/DeployGuideModal';
-import { api } from './api';
+import { api, PaymentPolicy } from './api';
 import { useAppAuth } from './auth/AuthProvider';
 
 import { 
@@ -26,7 +26,8 @@ import {
   CartItem, 
   Order, 
   OrderStatus, 
-  AppUser 
+  AppUser,
+  PaymentOption 
 } from './types';
 
 const tabPaths: Record<string, string> = {
@@ -84,10 +85,12 @@ function AppShell() {
         createdAt: 'Hoje às 08:30',
         customerName: 'Fernanda Becker',
         customerPhone: '(45) 99877-1234',
+        customerEmail: 'fernanda.becker@toledo.pr.gov.br',
         customerAddress: 'Rua Almirante Barroso, 850',
         deliveryMethod: 'delivery',
         neighborhood: 'Centro',
         paymentMethod: 'pix',
+        paymentStatus: 'pending_on_pickup',
         items: [
           { product: INITIAL_PRODUCTS[0], quantity: 2 },
           { product: INITIAL_PRODUCTS[1], quantity: 3 },
@@ -102,11 +105,13 @@ function AppShell() {
         createdAt: 'Ontem às 17:40',
         customerName: 'Carlos Eduardo Santos',
         customerPhone: '(45) 99920-3344',
+        customerEmail: 'carlos.santos@agrohero.com.br',
         customerAddress: 'Ponto Ecológico Lago',
         deliveryMethod: 'pickup',
         neighborhood: 'Jardim La Salle',
         pickupLocation: 'Ponto Verde - Parque Ecológico Diva Paim Barth (Lago Municipal)',
         paymentMethod: 'pix',
+        paymentStatus: 'pending_on_pickup',
         items: [
           { product: INITIAL_PRODUCTS[2], quantity: 2 },
           { product: INITIAL_PRODUCTS[3], quantity: 1 },
@@ -120,10 +125,12 @@ function AppShell() {
         createdAt: '18 de Setembro',
         customerName: 'Restaurante Terra & Sabor (Chef Juliano)',
         customerPhone: '(45) 99801-9090',
+        customerEmail: 'chef.juliano@terraesabor.com.br',
         customerAddress: 'Rua Santos Dumont, 2100',
         deliveryMethod: 'delivery',
         neighborhood: 'Centro',
         paymentMethod: 'credit_card',
+        paymentStatus: 'paid',
         items: [
           { product: INITIAL_PRODUCTS[2], quantity: 10 },
           { product: INITIAL_PRODUCTS[4], quantity: 6 },
@@ -137,6 +144,19 @@ function AppShell() {
 
   // Current User Session
   const [currentUser, setCurrentUser] = React.useState<AppUser | null>(null);
+
+  // Formas de pagamento presencial vêm do backend (fonte única de verdade)
+  const [paymentOptions, setPaymentOptions] = React.useState<PaymentOption[]>([]);
+  const [paymentPolicy, setPaymentPolicy] = React.useState<PaymentPolicy | null>(null);
+
+  React.useEffect(() => {
+    api.paymentMethods()
+      .then(({ methods, policy }) => {
+        setPaymentOptions(methods);
+        setPaymentPolicy(policy);
+      })
+      .catch(() => undefined);
+  }, []);
 
   // Modals
   const [selectedProductForModal, setSelectedProductForModal] = React.useState<Product | null>(null);
@@ -249,14 +269,15 @@ function AppShell() {
     setOrders((prev) => [newOrder, ...prev]);
   };
 
-  const handleStartCheckout = async (items: CartItem[]) => {
-    if (!appAuth.configured || !appAuth.isAuthenticated) return false;
-    const token = await appAuth.getAccessToken();
-    if (!token) return false;
-    const { checkoutUrl } = await api.checkout(items, token);
-    if (!checkoutUrl) return false;
-    window.location.assign(checkoutUrl);
-    return true;
+  // Envia o pedido ao backend. O pagamento fica pendente e é feito no local da retirada/entrega.
+  const handleConfirmOrder = async (order: Order): Promise<Order> => {
+    let token: string | undefined;
+    if (appAuth.configured && appAuth.isAuthenticated) {
+      token = await appAuth.getAccessToken();
+    }
+    const { order: savedOrder } = await api.createOrder(order, token);
+    handleOrderCompleted(savedOrder);
+    return savedOrder;
   };
 
   const handleLogin = async (user: AppUser) => {
@@ -461,7 +482,7 @@ function AppShell() {
                   </button>
                 </li>
                 <li className="pt-2 text-[11px] text-emerald-400 font-semibold">
-                  ⚡ Pagamento facilitado via PIX & Cartão
+                  ⚡ Pagamento no local da retirada: PIX, cartão ou dinheiro
                 </li>
               </ul>
             </div>
@@ -492,11 +513,12 @@ function AppShell() {
           navigate('/');
         }}
         cartItems={cartItems}
+        paymentOptions={paymentOptions}
+        paymentPolicy={paymentPolicy}
         onUpdateQuantity={handleUpdateQuantity}
         onRemoveItem={handleRemoveCartItem}
         onClearCart={handleClearCart}
-        onOrderCompleted={handleOrderCompleted}
-        onStartCheckout={handleStartCheckout}
+        onConfirmOrder={handleConfirmOrder}
       />
 
       <AuthModal

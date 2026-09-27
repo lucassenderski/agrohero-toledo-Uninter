@@ -13,6 +13,7 @@ export interface Producer {
   district: string; // District in Toledo - PR (e.g. Novo Sarandi, Concórdia do Oeste)
   bio: string;
   phone: string;
+  email: string;
   avatar: string;
   yearsFarming: number;
 }
@@ -77,16 +78,27 @@ export interface CartItem {
 
 export type OrderStatus = 'novo' | 'colheita' | 'em_rota' | 'entregue';
 
+export type PaymentMethod = 'cash' | 'pix' | 'credit_card' | 'debit_card';
+
+export interface PaymentOption {
+  id: PaymentMethod;
+  label: string;
+  description: string;
+  instructions: string[];
+}
+
 export interface Order {
   id: string;
   createdAt: string;
   customerName: string;
   customerPhone: string;
+  customerEmail: string;
   customerAddress: string;
   deliveryMethod: 'delivery' | 'pickup';
   neighborhood: string;
   pickupLocation?: string;
-  paymentMethod: 'pix' | 'credit_card' | 'debit_card';
+  paymentMethod: PaymentMethod;
+  paymentStatus: 'pending_on_pickup' | 'paid';
   items: CartItem[];
   totalAmount: number;
   deliveryFee: number;

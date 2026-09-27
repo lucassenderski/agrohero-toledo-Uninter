@@ -109,7 +109,8 @@ export async function saveOrder(order: Order, customerId?: string) {
   if (!database) return order;
   await database.query(
     `INSERT INTO orders (id, customer_id, status, total_amount, payload)
-     VALUES ($1, $2, $3, $4, $5)`,
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO NOTHING`,
     [order.id, customerId || null, order.status, order.totalAmount, order],
   );
   return order;

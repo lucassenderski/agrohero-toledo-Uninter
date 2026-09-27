@@ -1,12 +1,7 @@
-import { createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import request from 'supertest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import app from '../server';
-
-afterEach(() => {
-  delete process.env.MERCADOPAGO_WEBHOOK_SECRET;
-});
 
 describe('API security controls', () => {
   it('sets browser security headers on every response', async () => {
@@ -70,48 +65,97 @@ describe('API security controls', () => {
     expect(response.body.user.documentStatus).toBe('received_for_review');
   });
 
-  it('protects administrative, order and payment endpoints without a bearer token', async () => {
+  it('protects administrative and order listing endpoints without a bearer token', async () => {
     const endpoints = [
       request(app).get('/api/orders'),
       request(app).get('/api/producer/access-check'),
-      request(app).post('/api/payments/checkout').send({ items: [] }),
+      request(app).patch('/api/orders/ord-1/status').send({ status: 'entregue' }),
     ];
     const responses = await Promise.all(endpoints);
 
     expect(responses.map((response) => response.status)).toEqual([503, 503, 503]);
   });
 
-  it('rejects unsigned and invalid payment webhooks', async () => {
-    process.env.MERCADOPAGO_WEBHOOK_SECRET = 'test-secret';
-    const unsigned = await request(app)
-      .post('/api/payments/webhook')
-      .send({ data: { id: 'payment-1' } });
-    const invalid = await request(app)
-      .post('/api/payments/webhook')
-      .set('x-request-id', 'request-1')
-      .set('x-signature', `ts:${Math.floor(Date.now() / 1000)},v1:bad`)
-      .send({ data: { id: 'payment-1' } });
+  it('publishes the in-person payment policy and accepted methods', async () => {
+    const response = await request(app).get('/api/payment-methods');
 
-    expect(unsigned.status).toBe(400);
-    expect(invalid.status).toBe(401);
+    expect(response.status).toBe(200);
+    expect(response.body.policy.channel).toBe('in_person');
+    expect(response.body.policy.message).toMatch(/local de retirada/i);
+    expect(response.body.methods.map((method: { id: string }) => method.id))
+      .toEqual(['pix', 'credit_card', 'debit_card', 'cash']);
   });
 
-  it('accepts a fresh webhook only when its HMAC is valid', async () => {
-    const secret = 'test-secret';
-    const requestId = 'request-1';
-    const dataId = 'payment-1';
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const manifest = `id:${dataId};request-id:${requestId};ts:${timestamp};`;
-    const hash = createHmac('sha256', secret).update(manifest).digest('hex');
-    process.env.MERCADOPAGO_WEBHOOK_SECRET = secret;
-
+  it('creates an order with payment pending for the pickup location', async () => {
     const response = await request(app)
-      .post('/api/payments/webhook')
-      .set('x-request-id', requestId)
-      .set('x-signature', `ts=${timestamp},v1=${hash}`)
-      .send({ data: { id: dataId } });
+      .post('/api/orders')
+      .send({
+        id: 'ord-test-1',
+        createdAt: '01/01/2026',
+        customerName: 'Cliente Teste',
+        customerPhone: '(45) 99999-0000',
+        customerEmail: 'cliente.teste@exemplo.com.br',
+        customerAddress: 'Rua Teste, 100',
+        deliveryMethod: 'pickup',
+        neighborhood: 'Centro',
+        pickupLocation: 'Ponto Verde - Parque Ecológico Diva Paim Barth (Lago Municipal)',
+        paymentMethod: 'pix',
+        paymentStatus: 'pending_on_pickup',
+        items: [{ product: { id: 'p-1', name: 'Alface', price: 5.5 }, quantity: 2 }],
+        totalAmount: 11,
+        deliveryFee: 0,
+        status: 'novo',
+      });
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(201);
+    expect(response.body.order.paymentStatus).toBe('pending_on_pickup');
+    expect(response.body.payment.channel).toBe('in_person');
+  });
+
+  it('rejects orders that try to mark payment as already settled online', async () => {
+    const baseOrder = {
+      id: 'ord-test-2',
+      createdAt: '01/01/2026',
+      customerName: 'Cliente Teste',
+      customerPhone: '(45) 99999-0000',
+      customerEmail: 'cliente.teste@exemplo.com.br',
+      customerAddress: 'Rua Teste, 100',
+      deliveryMethod: 'pickup',
+      neighborhood: 'Centro',
+      pickupLocation: 'Ponto Verde',
+      items: [{ product: { id: 'p-1', name: 'Alface', price: 5.5 }, quantity: 2 }],
+      totalAmount: 11,
+      deliveryFee: 0,
+      status: 'novo',
+    };
+
+    const paidUpfront = await request(app)
+      .post('/api/orders')
+      .send({ ...baseOrder, paymentMethod: 'credit_card', paymentStatus: 'paid' });
+    const unknownMethod = await request(app)
+      .post('/api/orders')
+      .send({ ...baseOrder, paymentMethod: 'boleto', paymentStatus: 'pending_on_pickup' });
+    const wrongTotal = await request(app)
+      .post('/api/orders')
+      .send({ ...baseOrder, paymentMethod: 'cash', paymentStatus: 'pending_on_pickup', totalAmount: 1 });
+
+    const missingEmail = await request(app)
+      .post('/api/orders')
+      .send({ ...baseOrder, customerEmail: undefined, paymentMethod: 'cash', paymentStatus: 'pending_on_pickup' });
+
+    expect(paidUpfront.status).toBe(400);
+    expect(unknownMethod.status).toBe(400);
+    expect(wrongTotal.status).toBe(400);
+    expect(missingEmail.status).toBe(400);
+    expect(missingEmail.body.error).toMatch(/e-mail válido/i);
+  });
+
+  it('no longer exposes an online checkout or payment webhook', async () => {
+    const checkout = await request(app).post('/api/payments/checkout').send({ items: [] });
+    const webhook = await request(app).post('/api/payments/webhook').send({ data: { id: 'payment-1' } });
+
+    expect(checkout.status).toBe(404);
+    expect(webhook.status).toBe(404);
   });
 });
 
@@ -128,5 +172,14 @@ describe('frontend security regression checks', () => {
 
     expect(authSource).not.toMatch(/SenhaForte@\d+/);
     expect(paymentSource).not.toMatch(/4532|cardCvv|Número do Cartão|CVV/);
+  });
+
+  it('keeps all payment collection on-site instead of an online gateway', async () => {
+    const checkoutSource = await readFile(new URL('../src/components/CartAndCheckoutModal.tsx', import.meta.url), 'utf8');
+    const apiSource = await readFile(new URL('../src/api.ts', import.meta.url), 'utf8');
+
+    expect(checkoutSource).not.toMatch(/checkoutUrl|window\.location\.assign|pixCopyPasteCode/);
+    expect(apiSource).not.toMatch(/checkoutUrl|\/api\/payments\/checkout/);
+    expect(checkoutSource).toContain("paymentStatus: 'pending_on_pickup'");
   });
 });

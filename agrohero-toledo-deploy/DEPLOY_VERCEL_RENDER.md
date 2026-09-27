@@ -6,7 +6,7 @@ Este projeto utiliza uma arquitetura separada:
 - **Render:** API Node.js/Express.
 - **Render PostgreSQL:** persistência de produtos, usuários e pedidos.
 - **Auth0:** autenticação e autorização por papéis.
-- **Mercado Pago:** checkout externo para PIX e cartão.
+- **Pagamento:** presencial no ponto de retirada ou na entrega (PIX, cartão ou dinheiro). Sem gateway online.
 
 O projeto está dentro da pasta `agrohero-toledo-deploy` do repositório. Esse caminho é importante durante a configuração das duas plataformas.
 
@@ -47,9 +47,6 @@ CORS_ORIGIN=https://<seu-projeto>.vercel.app
 AUTH0_ISSUER_URL=https://<seu-tenant>.us.auth0.com
 AUTH0_AUDIENCE=https://api.agrohero.app
 AUTH0_ROLES_CLAIM=https://agrohero.app/roles
-MERCADOPAGO_ACCESS_TOKEN=<token privado>
-MERCADOPAGO_WEBHOOK_SECRET=<segredo do webhook>
-CHECKOUT_BASE_URL=https://<seu-projeto>.vercel.app
 ```
 
 Após o deploy, confirme:
@@ -93,21 +90,27 @@ VITE_AUTH0_AUDIENCE=https://api.agrohero.app
 
 O `vercel.json` contém o rewrite da SPA para permitir refresh em rotas como `/receitas`, `/produtor` e `/produto/:id`.
 
-## 5. Configuração do Mercado Pago
+## 5. Política de pagamento no local
 
-1. Crie ou utilize uma aplicação no Mercado Pago.
-2. Gere um access token de teste para homologação.
-3. Configure `MERCADOPAGO_ACCESS_TOKEN` somente no Render.
-4. Configure o segredo de assinatura em `MERCADOPAGO_WEBHOOK_SECRET`.
-5. Cadastre o endpoint:
+Não há gateway de pagamento online. O cliente finaliza o pedido na aplicação e paga presencialmente:
 
-```text
-https://<sua-api>.onrender.com/api/payments/webhook
-```
+1. O frontend consulta `GET /api/payment-methods` para exibir as formas aceitas.
+2. O pedido é enviado por `POST /api/orders` com `paymentStatus: pending_on_pickup`.
+3. O produtor recebe o pedido e cobra no ponto de retirada ou na entrega, via PIX, cartão ou dinheiro.
 
-O frontend não coleta número completo de cartão ou CVV. O backend cria uma preferência e redireciona o usuário para o checkout hospedado.
+O frontend nunca coleta número de cartão, CVV ou código PIX. A aplicação não recebe nem armazena dados financeiros.
 
-O pedido não deve ser considerado pago apenas pelo retorno do navegador. A confirmação deve ocorrer por webhook validado.
+## 5.1. Notificações por e-mail do pedido
+
+`POST /api/orders` envia e-mails transacionais via `mailer.ts` (nodemailer), de forma best-effort — falha de SMTP não desfaz o pedido salvo.
+
+Configure no Render as variáveis `SMTP_HOST`, `SMTP_PORT` (587 com STARTTLS), `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` e `APP_URL`. Sem elas o pedido continua sendo aceito e nenhum e-mail é enviado.
+
+- Cliente: confirmação da compra com resumo, total e ponto de retirada, enviada para `customerEmail`.
+- Produtores: aviso para preparar os produtos, agrupado por produtor.
+- O destinatário do produtor vem do catálogo do servidor (resolvido por `productId`), não do payload do cliente.
+
+`tests/orders-email.test.ts` sobe um servidor SMTP local e valida as mensagens entregues.
 
 ## 6. Validação pós-deploy
 
@@ -127,14 +130,14 @@ Depois valide:
 2. O frontend carrega produtos pela API.
 3. A rota `/produtor` bloqueia consumidores.
 4. O login redireciona para Auth0 quando configurado.
-5. O checkout redireciona para o Mercado Pago.
-6. O webhook inválido retorna erro `400` ou `401`.
-7. O webhook válido retorna `202`.
+5. `GET /api/payment-methods` retorna a política presencial e as formas aceitas.
+6. `POST /api/orders` cria o pedido com `paymentStatus: pending_on_pickup`.
+7. `POST /api/orders` com `paymentStatus: paid` retorna erro `400`.
 
 ## 7. Limitações e segurança
 
 - Sem as variáveis de Auth0, as rotas protegidas permanecem indisponíveis.
-- Sem as credenciais do Mercado Pago, o checkout não confirma pagamento.
+- Sem Auth0, o painel do produtor fica indisponível; o registro de pedidos continua funcionando.
 - Segredos devem ser configurados apenas no Render ou em variáveis locais não versionadas.
-- O uso de PostgreSQL, Auth0 e Mercado Pago requer políticas operacionais próprias, incluindo retenção de dados, gestão de acesso e monitoramento.
-- Os testes automatizados apoiam a conformidade técnica, mas não substituem auditoria jurídica, LGPD ou PCI-DSS.
+- O uso de PostgreSQL e Auth0 requer políticas operacionais próprias, incluindo retenção de dados, gestão de acesso e monitoramento.
+- Os testes automatizados apoiam a conformidade técnica, mas não substituem auditoria jurídica ou avaliação formal da LGPD.

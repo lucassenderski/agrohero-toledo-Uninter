@@ -533,7 +533,7 @@ export const TestimonialsView: React.FC<TestimonialsViewProps> = ({
                     <option value="Qualidade e Frescor Imbatível">🌿 Qualidade & Frescor Imbatível</option>
                     <option value="Aumento de Renda no Campo">+40% de Renda Familiar no Campo</option>
                     <option value="Preço Justo Sem Atravessadores">🤝 Preço Justo e Sem Atravessador</option>
-                    <option value="Agilidade no PIX & Entrega">⚡ Agilidade no PIX e Entrega</option>
+                    <option value="Pagamento na Retirada & Entrega">⚡ Pagamento na Retirada e Entrega</option>
                     <option value="Receitas Saudáveis Práticas">🍲 Receitas Saudáveis com Alimentos da Região</option>
                     <option value="Retirada Ecológica no Lago">🌳 Retirada no Parque Diva Paim Barth</option>
                   </select>

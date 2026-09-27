@@ -11,6 +11,7 @@ import {
   MapPin, 
   QrCode, 
   CreditCard,
+  Banknote,
   Edit2,
   Trash2,
   Calendar,
@@ -20,8 +21,15 @@ import {
   TrendingUp,
   Sparkles
 } from 'lucide-react';
-import { Product, Order, OrderStatus, AppUser } from '../types';
+import { Product, Order, OrderStatus, AppUser, PaymentMethod } from '../types';
 import { TOLEDO_DISTRICTS, PRODUCERS } from '../data/mockData';
+
+const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  pix: 'PIX na retirada',
+  credit_card: 'Crédito na retirada',
+  debit_card: 'Débito na retirada',
+  cash: 'Dinheiro na retirada',
+};
 
 interface ProducerDashboardViewProps {
   products: Product[];
@@ -79,6 +87,7 @@ export const ProducerDashboardView: React.FC<ProducerDashboardViewProps> = ({
         district: `${district}, Toledo - PR`,
         bio: 'Agricultores familiares dedicados ao cultivo agroecológico sem aditivos sintéticos.',
         phone: '(45) 99800-0000',
+        email: currentUser?.email || 'contato@agrohero.com.br',
         avatar: currentUser?.avatar || 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=300&q=80',
         yearsFarming: 8,
       },
@@ -250,7 +259,7 @@ export const ProducerDashboardView: React.FC<ProducerDashboardViewProps> = ({
               <Package className="w-10 h-10 text-stone-300 mx-auto mb-2" />
               <p className="text-stone-600 font-bold">Nenhum pedido registrado ainda.</p>
               <p className="text-xs text-stone-400 mt-1">
-                Faça uma compra de teste pelo marketplace com PIX ou Cartão para ver o pedido aparecer aqui em tempo real.
+                Faça uma compra de teste pelo marketplace e escolha pagar na retirada para ver o pedido aparecer aqui em tempo real.
               </p>
             </div>
           ) : (
@@ -285,9 +294,11 @@ export const ProducerDashboardView: React.FC<ProducerDashboardViewProps> = ({
                             ? `Entrega: ${order.customerAddress} (${order.neighborhood})` 
                             : `Retirada: ${order.pickupLocation}`}
                         </span>
-                        <span className="flex items-center gap-1 font-semibold text-emerald-800">
-                          {order.paymentMethod === 'pix' ? <QrCode className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
-                          Pago via {order.paymentMethod.toUpperCase()}
+                        <span className="flex items-center gap-1 font-semibold text-amber-800">
+                          {order.paymentMethod === 'cash' ? <Banknote className="w-3.5 h-3.5" /> : order.paymentMethod === 'pix' ? <QrCode className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
+                          {PAYMENT_METHOD_LABELS[order.paymentMethod] || order.paymentMethod}
+                          {' • '}
+                          {order.paymentStatus === 'paid' ? 'Recebido no local' : 'A receber na retirada'}
                         </span>
                       </div>
 

@@ -116,9 +116,9 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose }) => {
               <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 space-y-1">
                 <span className="font-bold text-emerald-950 flex items-center gap-1.5">
                   <CreditCard className="w-3.5 h-3.5 text-emerald-700" />
-                  4. Gateway PIX & Cartão
+                  4. Pagamento no Local da Retirada
                 </span>
-                <p className="text-stone-600">QR Code dinâmico com confirmação instantânea e cartão seguro.</p>
+                <p className="text-stone-600">PIX, cartão ou dinheiro acertados presencialmente no ponto de retirada. Nada é cobrado online.</p>
               </div>
 
               <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 space-y-1">

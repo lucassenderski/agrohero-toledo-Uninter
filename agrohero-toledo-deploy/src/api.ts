@@ -1,4 +1,4 @@
-import { AppUser, Order, OrderStatus, Product, Recipe } from './types';
+import { AppUser, Order, OrderStatus, PaymentOption, Product, Recipe } from './types';
 
 const apiBaseUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
@@ -26,29 +26,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface PaymentPolicy {
+  channel: 'in_person';
+  message: string;
+}
+
 export const api = {
   health: () => request<{ status: string }>('/api/health'),
   products: () => request<{ products: Product[] }>('/api/products'),
   recipes: () => request<{ recipes: Recipe[] }>('/api/recipes'),
+  paymentMethods: () =>
+    request<{ policy: PaymentPolicy; methods: PaymentOption[] }>('/api/payment-methods'),
   verifyUser: (user: Pick<AppUser, 'email' | 'role'>) =>
     request<{ authenticated: boolean }>('/api/auth/verify', {
       method: 'POST',
       body: JSON.stringify(user),
     }),
-  checkout: (items: unknown[], token: string) =>
-    request<{ checkoutUrl?: string }>('/api/payments/checkout', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ items }),
-    }),
   orders: (token: string) =>
     request<{ orders: Order[] }>('/api/orders', {
       headers: { Authorization: `Bearer ${token}` },
     }),
-  createOrder: (order: Order, token: string) =>
+  createOrder: (order: Order, token?: string) =>
     request<{ order: Order }>('/api/orders', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: JSON.stringify(order),
     }),
   updateOrderStatus: (orderId: string, status: OrderStatus, token: string) =>

@@ -36,6 +36,23 @@ export async function requireAuth(req: AuthenticatedRequest, res: Response, next
   }
 }
 
+// Pedidos podem ser criados por visitantes; quando há token, o pedido fica vinculado ao usuário.
+export async function optionalAuth(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
+  const authorization = req.header('authorization');
+  if (authConfigured && jwks && issuer && audience && authorization?.startsWith('Bearer ')) {
+    try {
+      const { payload } = await jwtVerify(authorization.slice(7), jwks, {
+        issuer: `${issuer}/`,
+        audience,
+      });
+      req.auth = payload as AuthenticatedRequest['auth'];
+    } catch {
+      req.auth = undefined;
+    }
+  }
+  return next();
+}
+
 export function requireRole(...allowedRoles: AppRole[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const roles = req.auth?.[rolesClaim];

@@ -1,104 +1,157 @@
 import React from 'react';
-import { 
-  X, 
-  Trash2, 
-  Plus, 
-  Minus, 
-  MapPin, 
-  QrCode, 
-  CreditCard, 
-  ShieldCheck, 
-  CheckCircle2, 
-  Copy, 
-  Check, 
-  Truck, 
-  Clock, 
-  ArrowRight, 
+import {
+  X,
+  Trash2,
+  Plus,
+  Minus,
+  MapPin,
+  CreditCard,
+  ShieldCheck,
+  CheckCircle2,
+  Check,
+  Truck,
+  ArrowRight,
   ArrowLeft,
   ShoppingBag,
-  ExternalLink
+  Banknote,
+  QrCode,
+  Store,
+  Info
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { CartItem, Order, Product } from '../types';
+import { CartItem, Order, PaymentMethod, PaymentOption } from '../types';
 import { TOLEDO_PICKUP_POINTS } from '../data/mockData';
+import { PaymentPolicy } from '../api';
 
 interface CartAndCheckoutModalProps {
   isOpen: boolean;
   onClose: () => void;
   cartItems: CartItem[];
+  paymentOptions: PaymentOption[];
+  paymentPolicy: PaymentPolicy | null;
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
-  onOrderCompleted: (order: Order) => void;
-  onStartCheckout?: (items: CartItem[]) => Promise<boolean>;
+  onConfirmOrder: (order: Order) => Promise<Order>;
 }
+
+const PAYMENT_ICONS: Record<PaymentMethod, React.ComponentType<{ className?: string }>> = {
+  pix: QrCode,
+  credit_card: CreditCard,
+  debit_card: CreditCard,
+  cash: Banknote,
+};
+
+const FALLBACK_PAYMENT_OPTIONS: PaymentOption[] = [
+  {
+    id: 'pix',
+    label: 'PIX na retirada',
+    description: 'Pague por PIX presencialmente no ponto de retirada.',
+    instructions: ['Finalize o pedido sem pagar agora.', 'Pague no local e receba os produtos.'],
+  },
+];
 
 export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
   isOpen,
   onClose,
   cartItems,
+  paymentOptions,
+  paymentPolicy,
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
-  onOrderCompleted,
-  onStartCheckout,
+  onConfirmOrder,
 }) => {
   const [step, setStep] = React.useState<'cart' | 'shipping' | 'payment' | 'success'>('cart');
 
   // Shipping details state
   const [customerName, setCustomerName] = React.useState('Lucas Silva');
   const [customerPhone, setCustomerPhone] = React.useState('(45) 99811-4520');
+  const [customerEmail, setCustomerEmail] = React.useState('lucas.toledo@agrohero.com.br');
   const [deliveryMethod, setDeliveryMethod] = React.useState<'delivery' | 'pickup'>('pickup');
   const [neighborhood, setNeighborhood] = React.useState('Jardim La Salle');
   const [customerAddress, setCustomerAddress] = React.useState('Rua Santos Dumont, 1420');
   const [pickupPoint, setPickupPoint] = React.useState(TOLEDO_PICKUP_POINTS[1].name);
 
-  // Payment details state
-  const [paymentMethod, setPaymentMethod] = React.useState<'pix' | 'credit_card'>('pix');
-
-  // PIX helpers
-  const [copiedPix, setCopiedPix] = React.useState(false);
+  // Payment on-site state
+  const options = paymentOptions.length > 0 ? paymentOptions : FALLBACK_PAYMENT_OPTIONS;
+  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethod>(options[0].id);
   const [paymentError, setPaymentError] = React.useState<string | null>(null);
+  const [shippingError, setShippingError] = React.useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [completedOrder, setCompletedOrder] = React.useState<Order | null>(null);
+
+  React.useEffect(() => {
+    if (!options.some((option) => option.id === paymentMethod)) {
+      setPaymentMethod(options[0].id);
+    }
+  }, [options, paymentMethod]);
 
   if (!isOpen) return null;
 
+  const selectedOption = options.find((option) => option.id === paymentMethod) || options[0];
   const itemsSubtotal = cartItems.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
   const deliveryFee = deliveryMethod === 'delivery' ? 8.00 : 0.00;
   const orderTotal = itemsSubtotal + deliveryFee;
 
-  const pixCopyPasteCode = `00020126580014br.gov.bcb.pix0136agrohero-toledo-organicos@pix.gov.br520400005303986540${orderTotal.toFixed(2)}5802BR5909AGRO HERO6006TOLEDO62070503***6304E91A`;
+  const policyMessage = paymentPolicy?.message
+    || 'O pagamento é efetuado no local de retirada dos produtos.';
 
-  const handleCopyPix = () => {
-    navigator.clipboard.writeText(pixCopyPasteCode);
-    setCopiedPix(true);
-    setTimeout(() => setCopiedPix(false), 2000);
-  };
+  const buildOrder = (): Order => ({
+    id: `ord-${Date.now()}`,
+    createdAt: new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }),
+    customerName: customerName.trim() || 'Cliente Agro Hero',
+    customerPhone,
+    customerEmail: customerEmail.trim(),
+    customerAddress,
+    deliveryMethod,
+    neighborhood,
+    pickupLocation: deliveryMethod === 'pickup' ? pickupPoint : undefined,
+    paymentMethod,
+    paymentStatus: 'pending_on_pickup',
+    items: cartItems,
+    totalAmount: orderTotal,
+    deliveryFee,
+    status: 'novo',
+  });
 
-  const handleFinishPayment = async () => {
+  const handleConfirmOrder = async () => {
     setPaymentError(null);
-    if (!onStartCheckout) {
-      setPaymentError('O gateway de pagamento não está disponível neste ambiente.');
-      return;
-    }
-
+    setIsSubmitting(true);
     try {
-      const redirectedToGateway = await onStartCheckout(cartItems);
-      if (redirectedToGateway) return;
-      setPaymentError('Configure Auth0 e o gateway de pagamento para concluir a transação.');
+      // O pedido é registrado no backend e só então o pagamento fica pendente para o local de retirada.
+      const savedOrder = await onConfirmOrder(buildOrder());
+      setCompletedOrder(savedOrder);
+      onClearCart();
+      setStep('success');
+      confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
     } catch {
-      setPaymentError('Não foi possível iniciar o checkout. Tente novamente.');
+      setPaymentError('Não foi possível registrar o pedido. Verifique a conexão e tente novamente.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
     setStep('cart');
+    setPaymentError(null);
+    setShippingError(null);
+    setCompletedOrder(null);
     onClose();
+  };
+
+  const handleProceedToPayment = () => {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      setShippingError('Informe um e-mail válido para receber a confirmação do pedido.');
+      return;
+    }
+    setShippingError(null);
+    setStep('payment');
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-stone-900/60 backdrop-blur-xs overflow-y-auto">
-      <div 
+      <div
         className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl border border-stone-200 overflow-hidden flex flex-col max-h-[90vh] my-auto"
         onClick={(e) => e.stopPropagation()}
       >
@@ -109,7 +162,7 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
             <span className="font-extrabold text-stone-900 text-base font-['Outfit',sans-serif]">
               {step === 'cart' && 'Minha Cesta de Orgânicos de Toledo'}
               {step === 'shipping' && 'Entrega ou Retirada em Toledo - PR'}
-              {step === 'payment' && 'Pagamento (PIX ou Cartão)'}
+              {step === 'payment' && 'Pagamento no Local da Retirada'}
               {step === 'success' && 'Pedido Confirmado com Sucesso!'}
             </span>
           </div>
@@ -215,6 +268,13 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
                       R$ {itemsSubtotal.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
+
+                  <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2 text-xs text-amber-900">
+                    <Store className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Sem cobrança online:</strong> {policyMessage} Você escolhe PIX, cartão ou dinheiro na hora.
+                    </span>
+                  </div>
                 </div>
               )}
             </>
@@ -284,11 +344,11 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
                   </label>
                   <div className="space-y-2">
                     {TOLEDO_PICKUP_POINTS.slice(0, 2).map((point) => (
-                      <label 
+                      <label
                         key={point.id}
                         className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer ${
-                          pickupPoint === point.name 
-                            ? 'bg-white border-emerald-500 ring-1 ring-emerald-500' 
+                          pickupPoint === point.name
+                            ? 'bg-white border-emerald-500 ring-1 ring-emerald-500'
                             : 'bg-white/70 border-stone-200'
                         }`}
                       >
@@ -372,121 +432,109 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
                   className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-900"
                 />
               </div>
+
+              {/* Customer Email — recebe a confirmação do pedido */}
+              <div>
+                <label htmlFor="input-customer-email" className="text-xs font-bold text-stone-700 block mb-1">
+                  E-mail para receber a confirmação do pedido
+                </label>
+                <input
+                  id="input-customer-email"
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => {
+                    setCustomerEmail(e.target.value);
+                    if (shippingError) setShippingError(null);
+                  }}
+                  placeholder="seu.email@exemplo.com.br"
+                  className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs text-stone-900"
+                />
+                <p className="text-[11px] text-stone-500 mt-1">
+                  Você e o produtor recebem um e-mail com o resumo do pedido para preparar os produtos.
+                </p>
+                {shippingError && (
+                  <p role="alert" className="text-[11px] font-semibold text-rose-700 mt-1">
+                    {shippingError}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
-          {/* STEP 3: PAYMENT GATEWAY (PIX & CARTÃO) */}
+          {/* STEP 3: PAYMENT ON PICKUP */}
           {step === 'payment' && (
             <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-2.5">
+                <Store className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+                <div className="text-xs text-emerald-950 space-y-1">
+                  <span className="font-bold block text-sm">Pagamento feito no local</span>
+                  <p>{policyMessage}</p>
+                </div>
+              </div>
+
               {paymentError && (
                 <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-800">
                   {paymentError}
                 </div>
               )}
-              {/* Payment selector tabs */}
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  id="tab-payment-pix"
-                  onClick={() => setPaymentMethod('pix')}
-                  className={`p-3.5 rounded-2xl border-2 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                    paymentMethod === 'pix'
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 shadow-xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <QrCode className="w-4 h-4 text-emerald-600" />
-                  <span>PIX Instantâneo</span>
-                  <span className="text-[10px] bg-emerald-200 text-emerald-900 px-1.5 py-0.2 rounded font-black">
-                    Aprovação Imediata
-                  </span>
-                </button>
 
-                <button
-                  id="tab-payment-card"
-                  onClick={() => setPaymentMethod('credit_card')}
-                  className={`p-3.5 rounded-2xl border-2 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                    paymentMethod === 'credit_card'
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 shadow-xs'
-                      : 'border-stone-200 text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4 text-emerald-600" />
-                  <span>Cartão de Crédito</span>
-                </button>
+              <div className="space-y-2">
+                <span className="text-xs font-bold text-stone-700 uppercase tracking-wider block">
+                  Como você prefere pagar no momento da retirada?
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {options.map((option) => {
+                    const Icon = PAYMENT_ICONS[option.id] || CreditCard;
+                    const isSelected = option.id === paymentMethod;
+                    return (
+                      <button
+                        key={option.id}
+                        id={`tab-payment-${option.id}`}
+                        onClick={() => setPaymentMethod(option.id)}
+                        className={`p-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-900 shadow-xs'
+                            : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-2 font-bold text-xs sm:text-sm">
+                          <Icon className="w-4 h-4 text-emerald-600" />
+                          {option.label}
+                        </span>
+                        <span className="text-[11px] text-stone-500 block mt-1">
+                          {option.description}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* PIX Flow */}
-              {paymentMethod === 'pix' ? (
-                <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-4 text-center">
-                  <div className="inline-flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full font-bold">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>QR Code válido por 15:00 minutos</span>
-                  </div>
-
-                  {/* QR Code graphic */}
-                  <div className="w-48 h-48 mx-auto bg-white p-3 rounded-2xl border border-stone-200 shadow-xs flex items-center justify-center relative">
-                    <div className="grid grid-cols-6 gap-1 w-full h-full p-2 bg-stone-900 rounded-lg">
-                      {Array.from({ length: 36 }).map((_, i) => (
-                        <div 
-                          key={i} 
-                          className={`rounded-xs ${
-                            (i % 2 === 0 || i % 7 === 0 || i === 0 || i === 5 || i === 30 || i === 35) 
-                              ? 'bg-white' 
-                              : 'bg-stone-900'
-                          }`} 
-                        />
-                      ))}
-                    </div>
-                    {/* Centered Logo Badge */}
-                    <div className="absolute inset-0 m-auto w-10 h-10 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold text-xs shadow-md">
-                      PIX
-                    </div>
-                  </div>
-
-                  <div>
-                    <span className="text-xs text-stone-500 block">Total a pagar com PIX:</span>
-                    <span className="text-2xl font-black text-stone-900 font-['Outfit',sans-serif]">
-                      R$ {orderTotal.toFixed(2).replace('.', ',')}
-                    </span>
-                  </div>
-
-                  {/* PIX Copia e Cola */}
-                  <div className="space-y-1 text-left">
-                    <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block">
-                      Código PIX Copia e Cola
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        readOnly
-                        value={pixCopyPasteCode}
-                        className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs text-stone-600 font-mono select-all truncate"
-                      />
-                      <button
-                        onClick={handleCopyPix}
-                        className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-900 text-white font-bold text-xs shrink-0 flex items-center gap-1.5 transition-colors cursor-pointer"
-                      >
-                        {copiedPix ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedPix ? 'Copiado!' : 'Copiar'}</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-stone-500">
-                    Abra o app do seu banco, escolha <strong>Pagar com PIX</strong> e aponte a câmera ou cole o código acima.
-                  </p>
+              <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-stone-500">Total a pagar no local</span>
+                  <span className="text-2xl font-black text-stone-900 font-['Outfit',sans-serif]">
+                    R$ {orderTotal.toFixed(2).replace('.', ',')}
+                  </span>
                 </div>
-              ) : (
-                <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
-                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-sm">
-                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                    <span>Pagamento processado pelo provedor seguro</span>
-                  </div>
-                  <p className="text-xs text-stone-600 leading-relaxed">
-                    Você será direcionado ao checkout externo para concluir PIX ou cartão. Os dados financeiros não passam pelo Agro Hero.
-                  </p>
+
+                <ul className="space-y-1.5 text-xs text-stone-600">
+                  {selectedOption.instructions.map((instruction) => (
+                    <li key={instruction} className="flex items-start gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{instruction}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="flex items-start gap-2 text-[11px] text-stone-500 border-t border-stone-200 pt-3">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Nenhum dado de cartão é informado aqui. Nada é cobrado online e o pagamento
+                    é registrado como pendente até a retirada.
+                  </span>
                 </div>
-              )}
+              </div>
             </div>
           )}
 
@@ -508,12 +556,26 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
                   {completedOrder.deliveryMethod === 'delivery' ? '🚚 Entrega Programada:' : '📍 Ponto de Retirada em Toledo:'}
                 </div>
                 <p>
-                  {completedOrder.deliveryMethod === 'delivery' 
+                  {completedOrder.deliveryMethod === 'delivery'
                     ? `Endereço: ${completedOrder.customerAddress} - ${completedOrder.neighborhood}, Toledo - PR`
                     : `Local: ${completedOrder.pickupLocation}`}
                 </p>
                 <p className="text-emerald-800">
-                  Os agricultores de Novo Sarandi, Concórdia do Oeste e Vila Nova já foram notificados e iniciarão a colheita fresca dos seus produtos!
+                  {completedOrder.deliveryMethod === 'delivery'
+                    ? `Confirmação enviada para ${completedOrder.customerEmail}. Os agricultores já foram notificados por e-mail e iniciarão a colheita fresca dos seus produtos!`
+                    : `Confirmação enviada para ${completedOrder.customerEmail}. Os produtores responsáveis foram notificados por e-mail para preparar os produtos para a retirada.`}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-left text-xs text-amber-950 space-y-1.5">
+                <div className="font-bold text-sm flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-amber-700" />
+                  Pagamento pendente no local
+                </div>
+                <p>
+                  Total de <strong>R$ {completedOrder.totalAmount.toFixed(2).replace('.', ',')}</strong> a ser pago
+                  {completedOrder.deliveryMethod === 'delivery' ? ' no momento da entrega ' : ' no ponto de retirada '}
+                  via {selectedOption.label.toLowerCase()}.
                 </p>
               </div>
 
@@ -570,7 +632,7 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
 
                   <button
                     id="btn-proceed-to-payment"
-                    onClick={() => setStep('payment')}
+                    onClick={handleProceedToPayment}
                     className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md transition-all cursor-pointer"
                   >
                     <span>Ir para Pagamento</span>
@@ -590,13 +652,12 @@ export const CartAndCheckoutModal: React.FC<CartAndCheckoutModalProps> = ({
 
                 <button
                   id="btn-finish-payment"
-                  onClick={handleFinishPayment}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
+                  onClick={handleConfirmOrder}
+                  disabled={isSubmitting}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center gap-2"
                 >
                   <Check className="w-4 h-4" />
-                  <span>
-                    {paymentMethod === 'pix' ? 'Confirmar Pagamento PIX' : 'Concluir Pagamento com Cartão'}
-                  </span>
+                  <span>{isSubmitting ? 'Registrando pedido...' : 'Confirmar Pedido e Pagar na Retirada'}</span>
                 </button>
               </>
             )}

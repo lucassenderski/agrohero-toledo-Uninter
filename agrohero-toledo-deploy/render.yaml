@@ -2,7 +2,7 @@ services:
   # Backend API Node.js / Express
   - type: web
     name: agro-hero-api
-    env: node
+    runtime: node
     plan: free
     region: ohio
     rootDir: agrohero-toledo-deploy

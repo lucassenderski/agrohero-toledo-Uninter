@@ -26,8 +26,14 @@ Não inclua arquivos `.env`, tokens, senhas ou o diretório `node_modules`. O `.
 ## 2. Deploy do backend no Render
 
 1. Acesse o [Render](https://render.com).
-2. Crie um **Blueprint** e selecione o repositório.
-3. Confirme que o Render encontrou `agrohero-toledo-deploy/render.yaml`.
+2. Clique em **New > Blueprint** e conecte o repositório `lucassenderski/agrohero-toledo-Uninter`.
+3. O Render procura por padrão o `render.yaml` na **raiz** do repositório, mas ele está em `agrohero-toledo-deploy/`. No campo **Blueprint Path**, informe:
+
+   ```
+   agrohero-toledo-deploy/render.yaml
+   ```
+
+   Sem esse passo o Render não encontra o arquivo e o Blueprint não é criado.
 4. O Blueprint criará o serviço web `agro-hero-api` e o banco PostgreSQL `agro-hero-db`.
 5. O `rootDir` do serviço já está definido como `agrohero-toledo-deploy`.
 6. O Render usará:

@@ -135,4 +135,4 @@ O endereço do produtor é resolvido no catálogo do servidor a partir do `produ
 
 ## Deploy
 
-As instruções de implantação estão em [DEPLOY_VERCEL_RENDER.md](DEPLOY_VERCEL_RENDER.md). O projeto está dentro da subpasta `agrohero-toledo-deploy`; esse caminho deve ser informado como diretório raiz na Vercel e já está declarado em `render.yaml`.
+As instruções de implantação estão em [DEPLOY_VERCEL_RENDER.md](DEPLOY_VERCEL_RENDER.md). O projeto está dentro da subpasta `agrohero-toledo-deploy`; esse caminho deve ser informado como diretório raiz na Vercel. No Render, o `render.yaml` está dentro dessa subpasta, então informe `agrohero-toledo-deploy/render.yaml` no campo Blueprint Path.

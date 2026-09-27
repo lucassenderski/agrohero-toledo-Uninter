@@ -49,6 +49,19 @@ AUTH0_AUDIENCE=https://api.agrohero.app
 AUTH0_ROLES_CLAIM=https://agrohero.app/roles
 ```
 
+Para habilitar as notificações por e-mail do pedido, adicione também (opcionais):
+
+```env
+SMTP_HOST=<host smtp do provedor>
+SMTP_PORT=587
+SMTP_USER=<usuario smtp>
+SMTP_PASSWORD=<senha smtp>
+MAIL_FROM=no-reply@agrohero.com.br
+APP_URL=https://<seu-projeto>.vercel.app
+```
+
+Essas chaves já estão declaradas em `render.yaml`. Sem elas o pedido continua sendo aceito e nenhum e-mail é enviado.
+
 Após o deploy, confirme:
 
 ```bash
@@ -120,7 +133,7 @@ Na pasta `agrohero-toledo-deploy`, execute antes de publicar alterações:
 npm install
 npm run lint
 npm run build
-npm run test:security
+npm test
 npm audit --audit-level=high
 ```
 
@@ -133,6 +146,7 @@ Depois valide:
 5. `GET /api/payment-methods` retorna a política presencial e as formas aceitas.
 6. `POST /api/orders` cria o pedido com `paymentStatus: pending_on_pickup`.
 7. `POST /api/orders` com `paymentStatus: paid` retorna erro `400`.
+8. Com SMTP configurado, o cliente e os produtores recebem os e-mails; a resposta de `POST /api/orders` traz `emailNotification: "sent"`.
 
 ## 7. Limitações e segurança
 

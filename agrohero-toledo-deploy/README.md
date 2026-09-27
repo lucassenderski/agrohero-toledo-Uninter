@@ -21,6 +21,7 @@ A aplicação disponibiliza um marketplace de produtos, receitas regionais, depo
 - **Banco de dados:** PostgreSQL, com execução prevista no Render.
 - **Autenticação:** Auth0 mediante configuração das variáveis de ambiente.
 - **Pagamentos:** cobrança presencial no local da retirada/entrega (PIX, cartão ou dinheiro). Nenhum pagamento online é processado pela aplicação.
+- **Notificações:** e-mails transacionais via SMTP (nodemailer) na confirmação do pedido.
 - **Hospedagem:** frontend na Vercel e backend com PostgreSQL no Render.
 
 ## Rotas principais
@@ -83,14 +84,29 @@ AUTH0_AUDIENCE=https://api.agrohero.app
 AUTH0_ROLES_CLAIM=https://agrohero.app/roles
 ```
 
+### E-mail transacional
+
+Opcionais. Sem elas o pedido continua sendo aceito e nenhum e-mail é enviado.
+
+```env
+SMTP_HOST=smtp.seu-provedor.com
+SMTP_PORT=587
+SMTP_USER=usuario-smtp
+SMTP_PASSWORD=senha-smtp
+MAIL_FROM=no-reply@agrohero.com.br
+APP_URL=https://seu-frontend.vercel.app
+```
+
 ## Testes e verificações
 
 ```bash
 npm run lint
 npm run build
-npm run test:security
+npm test
 npm audit --audit-level=high
 ```
+
+O script `npm test` roda toda a suíte. Para um arquivo específico: `npm run test:security` (headers, CORS, validação, política de pagamento) e `npm run test:email` (envio de e-mail com servidor SMTP local).
 
 Os testes de segurança verificam headers, CORS, validação de entrada, proteção de rotas, política de pagamento presencial, exposição de dados sensíveis e armazenamento no navegador.
 
